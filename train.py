@@ -4,6 +4,7 @@ from __future__ import absolute_import
 
 import tensorflow as tf
 import argparse
+from tensorflow.python import debug as tf_debug
 
 from model.unet import UNet
 
@@ -12,8 +13,9 @@ parser.add_argument('--experiment_dir', dest='experiment_dir', required=True,
                     help='experiment directory, data, samples,checkpoints,etc')
 parser.add_argument('--experiment_id', dest='experiment_id', type=int, default=0,
                     help='sequence id for the experiments you prepare to run')
-parser.add_argument('--image_size', dest='image_size', type=int, default=256,
-                    help="size of your input and output image")
+parser.add_argument('--image_height', dest='image_height', type=int, default=256,
+                    help="height of your input and output image")
+parser.add_argument('--image_width', dest='image_width', type=int, default=1024)
 parser.add_argument('--L1_penalty', dest='L1_penalty', type=int, default=100, help='weight for L1 loss')
 parser.add_argument('--Lconst_penalty', dest='Lconst_penalty', type=int, default=15, help='weight for const loss')
 parser.add_argument('--Ltv_penalty', dest='Ltv_penalty', type=float, default=0.0, help='weight for tv loss')
@@ -47,8 +49,9 @@ def main(_):
     config.gpu_options.allow_growth = True
 
     with tf.Session(config=config) as sess:
+	#sess = tf_debug.LocalCLIDebugWrapperSession(sess)
         model = UNet(args.experiment_dir, batch_size=args.batch_size, experiment_id=args.experiment_id,
-                     input_width=args.image_size, output_width=args.image_size, embedding_num=args.embedding_num,
+                     input_width=args.image_width, input_height=args.image_height, output_width=args.image_width, output_height=args.image_height, embedding_num=args.embedding_num,
                      embedding_dim=args.embedding_dim, L1_penalty=args.L1_penalty, Lconst_penalty=args.Lconst_penalty,
                      Ltv_penalty=args.Ltv_penalty, Lcategory_penalty=args.Lcategory_penalty)
         model.register_session(sess)

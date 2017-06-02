@@ -11,6 +11,7 @@ from collections import namedtuple
 from .ops import conv2d, deconv2d, lrelu, fc, batch_norm, init_embedding, conditional_instance_norm
 from .dataset import TrainDataProvider, InjectDataProvider, NeverEndingLoopingProvider
 from .utils import scale_back, merge, save_concat_images
+from math import ceil
 
 # Auxiliary wrapper classes
 # Used to save handles(important nodes in computation graph) for later evaluation
@@ -22,14 +23,16 @@ SummaryHandle = namedtuple("SummaryHandle", ["d_merged", "g_merged"])
 
 
 class UNet(object):
-    def __init__(self, experiment_dir=None, experiment_id=0, batch_size=16, input_width=256, output_width=256,
+    def __init__(self, experiment_dir=None, experiment_id=0, batch_size=16, input_width=1024,input_height=256, output_width=1024, output_height=256,
                  generator_dim=64, discriminator_dim=64, L1_penalty=100, Lconst_penalty=15, Ltv_penalty=0.0,
                  Lcategory_penalty=1.0, embedding_num=40, embedding_dim=128, input_filters=3, output_filters=3):
         self.experiment_dir = experiment_dir
         self.experiment_id = experiment_id
         self.batch_size = batch_size
         self.input_width = input_width
+	self.input_height = input_height
         self.output_width = output_width
+	self.output_height = output_height
         self.generator_dim = generator_dim
         self.discriminator_dim = discriminator_dim
         self.L1_penalty = L1_penalty
@@ -82,22 +85,27 @@ class UNet(object):
             e6 = encode_layer(e5, self.generator_dim * 8, 6)
             e7 = encode_layer(e6, self.generator_dim * 8, 7)
             e8 = encode_layer(e7, self.generator_dim * 8, 8)
-
-            return e8, encode_layers
+            e9 = encode_layer(e8, self.generator_dim*8,9)
+            e10 = encode_layer(e9, self.generator_dim*8,10)
+            return e10, encode_layers
 
     def decoder(self, encoded, encoding_layers, ids, inst_norm, is_training, reuse=False):
         with tf.variable_scope("generator"):
             if reuse:
                 tf.get_variable_scope().reuse_variables()
+	    
+	    s = self.output_width
+            s2, s4, s8, s16, s32, s64, s128, s256, s512 = int(s / 2), int(s / 4), int(s / 8), int(s / 16), int(s / 32), int(
+                s / 64), int(s / 128), int(s/256), int(s/512)
+            sh = self.output_height
+            sh2, sh4, sh8, sh16, sh32, sh64, sh128, sh256, sh512 = int(sh / 2), int(sh / 4), int(sh / 8), int(sh / 16), int(sh / 32), int(
+                sh / 64), int(sh / 128), int(sh/256), 1
 
-            s = self.output_width
-            s2, s4, s8, s16, s32, s64, s128 = int(s / 2), int(s / 4), int(s / 8), int(s / 16), int(s / 32), int(
-                s / 64), int(s / 128)
-
-            def decode_layer(x, output_width, output_filters, layer, enc_layer, dropout=False, do_concat=True):
-                dec = deconv2d(tf.nn.relu(x), [self.batch_size, output_width,
+            def decode_layer(x, output_height, output_width, output_filters, layer, enc_layer, dropout=False, do_concat=True):
+                dec = deconv2d(tf.nn.relu(x), [self.batch_size, output_height,
                                                output_width, output_filters], scope="g_d%d_deconv" % layer)
-                if layer != 8:
+            
+		if layer != 8:
                     # IMPORTANT: normalization for last layer
                     # Very important, otherwise GAN is unstable
                     # Trying conditional instance normalization to
@@ -113,17 +121,26 @@ class UNet(object):
                     dec = tf.concat([dec, enc_layer], 3)
                 return dec
 
-            d1 = decode_layer(encoded, s128, self.generator_dim * 8, layer=1, enc_layer=encoding_layers["e7"],
+            d1 = decode_layer(encoded, sh512, s512, self.generator_dim * 8, layer=1, enc_layer=encoding_layers["e9"],
                               dropout=True)
-            d2 = decode_layer(d1, s64, self.generator_dim * 8, layer=2, enc_layer=encoding_layers["e6"], dropout=True)
-            d3 = decode_layer(d2, s32, self.generator_dim * 8, layer=3, enc_layer=encoding_layers["e5"], dropout=True)
-            d4 = decode_layer(d3, s16, self.generator_dim * 8, layer=4, enc_layer=encoding_layers["e4"])
-            d5 = decode_layer(d4, s8, self.generator_dim * 4, layer=5, enc_layer=encoding_layers["e3"])
-            d6 = decode_layer(d5, s4, self.generator_dim * 2, layer=6, enc_layer=encoding_layers["e2"])
-            d7 = decode_layer(d6, s2, self.generator_dim, layer=7, enc_layer=encoding_layers["e1"])
-            d8 = decode_layer(d7, s, self.output_filters, layer=8, enc_layer=None, do_concat=False)
-
-            output = tf.nn.tanh(d8)  # scale to (-1, 1)
+            d2 = decode_layer(d1, sh256, s256, self.generator_dim * 8, layer=2, enc_layer=encoding_layers["e8"], dropout=True)	    
+            d3 = decode_layer(d2, sh128, s128, self.generator_dim * 8, layer=3, enc_layer=encoding_layers["e7"], dropout=True)
+            d4 = decode_layer(d3, sh64, s64, self.generator_dim * 8, layer=4, enc_layer=encoding_layers["e6"], dropout=True)
+            d5 = decode_layer(d4, sh32, s32, self.generator_dim * 8, layer=5, enc_layer=encoding_layers["e5"], dropout=True)
+            d6 = decode_layer(d5, sh16, s16, self.generator_dim * 8, layer=6, enc_layer=encoding_layers["e4"])
+            d7 = decode_layer(d6, sh8, s8, self.generator_dim * 4, layer=7, enc_layer=encoding_layers["e3"])
+            d8 = decode_layer(d7, sh4, s4, self.generator_dim * 2, layer=8, enc_layer=encoding_layers["e2"])
+            d9 = decode_layer(d8, sh2, s2, self.generator_dim, layer=9, enc_layer=encoding_layers["e1"])
+            d10 = decode_layer(d9, sh, s, self.output_filters, layer=10, enc_layer=None, do_concat=False)
+            #d2 = decode_layer(d1, sh64, s64, self.generator_dim * 8, layer=2, enc_layer=encoding_layers["e6"], dropout=True)
+            #d3 = decode_layer(d2, sh32, s32, self.generator_dim * 8, layer=3, enc_layer=encoding_layers["e5"], dropout=True)
+            #d4 = decode_layer(d3, sh16, s16, self.generator_dim * 8, layer=4, enc_layer=encoding_layers["e4"])
+            #d5 = decode_layer(d4, sh8, s8, self.generator_dim * 4, layer=5, enc_layer=encoding_layers["e3"])
+            #d6 = decode_layer(d5, sh4, s4, self.generator_dim * 2, layer=6, enc_layer=encoding_layers["e2"])
+            #d7 = decode_layer(d6, sh2, s2, self.generator_dim, layer=7, enc_layer=encoding_layers["e1"])
+            #d8 = decode_layer(d7, sh, s, self.output_filters, layer=8, enc_layer=None, do_concat=False)
+	   
+            output = tf.nn.tanh(d10)  # scale to (-1, 1)
             return output
 
     def generator(self, images, embeddings, embedding_ids, inst_norm, is_training, reuse=False):
@@ -149,17 +166,16 @@ class UNet(object):
             fc1 = fc(tf.reshape(h3, [self.batch_size, -1]), 1, scope="d_fc1")
             # category loss
             fc2 = fc(tf.reshape(h3, [self.batch_size, -1]), self.embedding_num, scope="d_fc2")
-
             return tf.nn.sigmoid(fc1), fc1, fc2
 
     def build_model(self, is_training=True, inst_norm=False, no_target_source=False):
         real_data = tf.placeholder(tf.float32,
-                                   [self.batch_size, self.input_width, self.input_width,
+                                   [self.batch_size, self.input_height, self.input_width,
                                     self.input_filters + self.output_filters],
                                    name='real_A_and_B_images')
         embedding_ids = tf.placeholder(tf.int64, shape=None, name="embedding_ids")
         no_target_data = tf.placeholder(tf.float32,
-                                        [self.batch_size, self.input_width, self.input_width,
+                                        [self.batch_size, self.input_height, self.input_width,
                                          self.input_filters + self.output_filters],
                                         name='no_target_A_and_B_images')
         no_target_ids = tf.placeholder(tf.int64, shape=None, name="no_target_embedding_ids")
@@ -204,7 +220,8 @@ class UNet(object):
         l1_loss = self.L1_penalty * tf.reduce_mean(tf.abs(fake_B - real_B))
         # total variation loss
         width = self.output_width
-        tv_loss = (tf.nn.l2_loss(fake_B[:, 1:, :, :] - fake_B[:, :width - 1, :, :]) / width
+	height = self.output_height
+        tv_loss = (tf.nn.l2_loss(fake_B[:, 1:, :, :] - fake_B[:, :height - 1, :, :]) / height
                    + tf.nn.l2_loss(fake_B[:, :, 1:, :] - fake_B[:, :, :width - 1, :]) / width) * self.Ltv_penalty
 
         # maximize the chance generator fool the discriminator
@@ -213,7 +230,6 @@ class UNet(object):
 
         d_loss = d_loss_real + d_loss_fake + category_loss / 2.0
         g_loss = cheat_loss + l1_loss + self.Lcategory_penalty * fake_category_loss + const_loss + tv_loss
-
         if no_target_source:
             # no_target source are examples that don't have the corresponding target images
             # however, except L1 loss, we can compute category loss, binary loss and constant losses with those examples
@@ -293,7 +309,6 @@ class UNet(object):
         setattr(self, "loss_handle", loss_handle)
         setattr(self, "eval_handle", eval_handle)
         setattr(self, "summary_handle", summary_handle)
-
     def register_session(self, sess):
         self.sess = sess
 
@@ -302,6 +317,8 @@ class UNet(object):
 
         d_vars = [var for var in t_vars if 'd_' in var.name]
         g_vars = [var for var in t_vars if 'g_' in var.name]
+
+
 
         if freeze_encoder:
             # exclude encoder weights
@@ -504,6 +521,7 @@ class UNet(object):
         learning_rate = tf.placeholder(tf.float32, name="learning_rate")
         d_optimizer = tf.train.AdamOptimizer(learning_rate, beta1=0.5).minimize(loss_handle.d_loss, var_list=d_vars)
         g_optimizer = tf.train.AdamOptimizer(learning_rate, beta1=0.5).minimize(loss_handle.g_loss, var_list=g_vars)
+
         tf.global_variables_initializer().run()
         real_data = input_handle.real_data
         embedding_ids = input_handle.embedding_ids

@@ -21,9 +21,9 @@ def make_image(img, path):
 def embed_image(img,w,h):
 	img_w, img_h = img.size
 	if img_w > w:
-		img = img.crop(0,0,w,img_h)
+		img = img.crop((0,0,w,img_h))
 	if img_h > h:
-		img = img.crop(0,0,img_w,h)
+		img = img.crop((0,0,img_w,h))
 	img_w, img_h = img.size
 
 	x = (w - img_w)/2
@@ -89,7 +89,7 @@ def process_words_file(file_path = 'words.txt', form_path = 'forms.txt'):
 
 	return images, max_w, max_h, word_dict
 
-def write_all_fonts(word_dict, x_offset, y_offset, size=150, write_path = 'typed_words/', font_path = '/Users/main/generators/cangan/TALKTOTH.TTF'):
+def write_all_fonts(word_dict, x_offset, y_offset, size=150, write_path = 'typed_words/', font_path = '/home/johnzz/dan/zi2zi/TALKTOTH.TTF'):
 	fnt = ImageFont.truetype(font_path,size)
 	words_2_fontpath = {}
 	print 'finding correct width'
@@ -137,7 +137,7 @@ def write_all_fonts(word_dict, x_offset, y_offset, size=150, write_path = 'typed
 	return words_2_fontpath
 
 
-def write_example_images(images, word_dict, max_width, max_height, size=150, write_path = 'typed_words/', font_path = '/Users/main/generators/cangan/TALKTOTH.TTF'):
+def write_example_images(images, word_dict, max_width, max_height, size=150, write_path = 'typed_words/', font_path = '/home/johnzz/dan/zi2zi/TALKTOTH.TTF'):
 	fnt = ImageFont.truetype(font_path,size)
 	words_2_fontpath = {}
 	print 'finding correct width'
@@ -163,7 +163,8 @@ def write_example_images(images, word_dict, max_width, max_height, size=150, wri
 		width = max_w
 	if height < max_h:
 		height = max_h
-
+	width = 1024
+	height = 256
 	for idx, img_cont in enumerate(images):
 		txt = img_cont.word
 		h = img_cont.h
@@ -171,9 +172,9 @@ def write_example_images(images, word_dict, max_width, max_height, size=150, wri
 		label = img_cont.author
 		img = Image.open('words/' + img_cont.image_path)
 		example = Image.new("RGBA", (width * 2, height), (255, 255, 255))
-		example.paste(write_font(fnt, txt, width, height), (0,0))
-		example.paste(embed_image(img, width, height), (width, 0))
-		make_image(example, join(write_path,label, label + '_' + txt + str(idx) + '.png'))
+		example.paste(write_font(fnt, txt, width, height), (width,0))
+		example.paste(embed_image(img, width, height), (0, 0))
+		make_image(example, join(write_path,label, label + '_' + txt + str(idx) + '.jpg'))
 		if idx%500 == 0:
 			print 'processed ' + str(idx) + ' images'
 
