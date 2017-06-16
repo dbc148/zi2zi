@@ -7,6 +7,7 @@ import argparse
 from tensorflow.python import debug as tf_debug
 
 from model.unet import UNet
+from model.snet import SNet
 
 parser = argparse.ArgumentParser(description='Train')
 parser.add_argument('--experiment_dir', dest='experiment_dir', required=True,
@@ -41,6 +42,7 @@ parser.add_argument('--checkpoint_steps', dest='checkpoint_steps', type=int, def
                     help='number of batches in between two checkpoints')
 parser.add_argument('--flip_labels', dest='flip_labels', type=int, default=None,
                     help='whether flip training data labels or not, in fine tuning')
+parser.add_argument('--use_stack_gan', dest='use_stack', type=int, default=0)
 args = parser.parse_args()
 
 
@@ -50,7 +52,13 @@ def main(_):
 
     with tf.Session(config=config) as sess:
 	#sess = tf_debug.LocalCLIDebugWrapperSession(sess)
-        model = UNet(args.experiment_dir, batch_size=args.batch_size, experiment_id=args.experiment_id,
+        if args.use_stack_gan:
+            model = SNet(args.experiment_dir, batch_size=args.batch_size, experiment_id=args.experiment_id,
+                     input_width=args.image_width, input_height=args.image_height, output_width=args.image_width, output_height=args.image_height, embedding_num=args.embedding_num,
+                     embedding_dim=args.embedding_dim, L1_penalty=args.L1_penalty, Lconst_penalty=args.Lconst_penalty,
+                     Ltv_penalty=args.Ltv_penalty, Lcategory_penalty=args.Lcategory_penalty)
+        else:
+            model = UNet(args.experiment_dir, batch_size=args.batch_size, experiment_id=args.experiment_id,
                      input_width=args.image_width, input_height=args.image_height, output_width=args.image_width, output_height=args.image_height, embedding_num=args.embedding_num,
                      embedding_dim=args.embedding_dim, L1_penalty=args.L1_penalty, Lconst_penalty=args.Lconst_penalty,
                      Ltv_penalty=args.Ltv_penalty, Lcategory_penalty=args.Lcategory_penalty)
