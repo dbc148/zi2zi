@@ -12,6 +12,7 @@ from .ops import conv2d, deconv2d, lrelu, fc, batch_norm, init_embedding, condit
 from .dataset import TrainDataProvider, InjectDataProvider, NeverEndingLoopingProvider
 from .utils import scale_back, merge, save_concat_images
 from math import ceil
+import pdb
 
 # Auxiliary wrapper classes
 # Used to save handles(important nodes in computation graph) for later evaluation
@@ -23,7 +24,7 @@ SummaryHandle = namedtuple("SummaryHandle", ["d_merged", "g_merged"])
 
 
 class UNet(object):
-    def __init__(self, experiment_dir=None, experiment_id=0, batch_size=16, input_width=1024,input_height=256, output_width=1024, output_height=256,
+    def __init__(self, experiment_dir=None, experiment_id=0, batch_size=16, input_width=256,input_height=64, output_width=256, output_height=64,
                  generator_dim=64, discriminator_dim=64, L1_penalty=100, Lconst_penalty=15, Ltv_penalty=0.0,
                  Lcategory_penalty=1.0, embedding_num=40, embedding_dim=128, input_filters=3, output_filters=3):
         self.experiment_dir = experiment_dir
@@ -85,9 +86,8 @@ class UNet(object):
             e6 = encode_layer(e5, self.generator_dim * 8, 6)
             e7 = encode_layer(e6, self.generator_dim * 8, 7)
             e8 = encode_layer(e7, self.generator_dim * 8, 8)
-            e9 = encode_layer(e8, self.generator_dim*8,9)
-            e10 = encode_layer(e9, self.generator_dim*8,10)
-            return e10, encode_layers
+
+            return e8, encode_layers
 
     def decoder(self, encoded, encoding_layers, ids, inst_norm, is_training, reuse=False):
         with tf.variable_scope("generator"):
@@ -99,12 +99,12 @@ class UNet(object):
                 s / 64), int(s / 128), int(s/256), int(s/512)
             sh = self.output_height
             sh2, sh4, sh8, sh16, sh32, sh64, sh128, sh256, sh512 = int(sh / 2), int(sh / 4), int(sh / 8), int(sh / 16), int(sh / 32), int(
-                sh / 64), int(sh / 128), int(sh/256), 1
+                sh / 64), 1, int(sh/256), 1
 
             def decode_layer(x, output_height, output_width, output_filters, layer, enc_layer, dropout=False, do_concat=True):
                 dec = deconv2d(tf.nn.relu(x), [self.batch_size, output_height,
                                                output_width, output_filters], scope="g_d%d_deconv" % layer)
-            
+            	#pdb.set_trace()
 		if layer != 8:
                     # IMPORTANT: normalization for last layer
                     # Very important, otherwise GAN is unstable
@@ -121,17 +121,15 @@ class UNet(object):
                     dec = tf.concat([dec, enc_layer], 3)
                 return dec
 
-            d1 = decode_layer(encoded, sh512, s512, self.generator_dim * 8, layer=1, enc_layer=encoding_layers["e9"],
+            d1 = decode_layer(encoded, sh128, s128, self.generator_dim * 8, layer=1, enc_layer=encoding_layers["e7"],
                               dropout=True)
-            d2 = decode_layer(d1, sh256, s256, self.generator_dim * 8, layer=2, enc_layer=encoding_layers["e8"], dropout=True)	    
-            d3 = decode_layer(d2, sh128, s128, self.generator_dim * 8, layer=3, enc_layer=encoding_layers["e7"], dropout=True)
-            d4 = decode_layer(d3, sh64, s64, self.generator_dim * 8, layer=4, enc_layer=encoding_layers["e6"], dropout=True)
-            d5 = decode_layer(d4, sh32, s32, self.generator_dim * 8, layer=5, enc_layer=encoding_layers["e5"], dropout=True)
-            d6 = decode_layer(d5, sh16, s16, self.generator_dim * 8, layer=6, enc_layer=encoding_layers["e4"])
-            d7 = decode_layer(d6, sh8, s8, self.generator_dim * 4, layer=7, enc_layer=encoding_layers["e3"])
-            d8 = decode_layer(d7, sh4, s4, self.generator_dim * 2, layer=8, enc_layer=encoding_layers["e2"])
-            d9 = decode_layer(d8, sh2, s2, self.generator_dim, layer=9, enc_layer=encoding_layers["e1"])
-            d10 = decode_layer(d9, sh, s, self.output_filters, layer=10, enc_layer=None, do_concat=False)
+            d2 = decode_layer(d1, sh64, s64, self.generator_dim * 8, layer=2, enc_layer=encoding_layers["e6"], dropout=True)	    
+            d3 = decode_layer(d2, sh32, s32, self.generator_dim * 8, layer=3, enc_layer=encoding_layers["e5"], dropout=True)
+            d4 = decode_layer(d3, sh16, s16, self.generator_dim * 8, layer=4, enc_layer=encoding_layers["e4"], dropout=True)
+            d5 = decode_layer(d4, sh8, s8, self.generator_dim * 4, layer=5, enc_layer=encoding_layers["e3"], dropout=True)
+            d6 = decode_layer(d5, sh4, s4, self.generator_dim * 2, layer=6, enc_layer=encoding_layers["e2"])
+            d7 = decode_layer(d6, sh2, s2, self.generator_dim , layer=7, enc_layer=encoding_layers["e1"])
+            d8 = decode_layer(d7, sh, s, self.output_filters, layer=8, enc_layer=None, do_concat=False)
             #d2 = decode_layer(d1, sh64, s64, self.generator_dim * 8, layer=2, enc_layer=encoding_layers["e6"], dropout=True)
             #d3 = decode_layer(d2, sh32, s32, self.generator_dim * 8, layer=3, enc_layer=encoding_layers["e5"], dropout=True)
             #d4 = decode_layer(d3, sh16, s16, self.generator_dim * 8, layer=4, enc_layer=encoding_layers["e4"])
@@ -140,7 +138,7 @@ class UNet(object):
             #d7 = decode_layer(d6, sh2, s2, self.generator_dim, layer=7, enc_layer=encoding_layers["e1"])
             #d8 = decode_layer(d7, sh, s, self.output_filters, layer=8, enc_layer=None, do_concat=False)
 	   
-            output = tf.nn.tanh(d10)  # scale to (-1, 1)
+            output = tf.nn.tanh(d8)  # scale to (-1, 1)
             return output
 
     def generator(self, images, embeddings, embedding_ids, inst_norm, is_training, reuse=False):

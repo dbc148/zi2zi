@@ -3,9 +3,10 @@ import os
 from collections import defaultdict
 import argparse
 import cPickle as pickle
-from PIL import Image
+from PIL import Image, ImageChops
 from PIL import ImageDraw
 from PIL import ImageFont
+import pdb
 import numpy as np
 import time
 
@@ -18,28 +19,59 @@ def make_image(img, path):
 	makedir(new_path)
 	img.save(path)
 
-def embed_image(img,w,h):
-	img_w, img_h = img.size
-	if img_w > w:
-		img = img.crop((0,0,w,img_h))
-	if img_h > h:
-		img = img.crop((0,0,img_w,h))
-	img_w, img_h = img.size
+def add_border(im, bg_color=(255,255,255)):
+	new_size = (im.size[0]+4, im.size[1]+4)
+	bordered_im = Image.new("RGB", new_size, bg_color)
+	bordered_im.paste(im, (2,2))
+	return bordered_im
 
+def embed_image(img,w,h):
+	img = add_border(img)
+	img = trim(img)
+	img_w, img_h = img.size
+	maxsize = (w-2,h-2)
+	if img_w > maxsize[0] or img_h > maxsize[1]:
+		img.thumbnail(maxsize)
+	img_w, img_h = img.size
+	
 	x = (w - img_w)/2
 	y = (h - img_h)/2
+	
+	
 
 	background = Image.new("RGBA", (w, h), (255, 255, 255))
 	background.paste(img, (x,y))
-	return background
+	return background, img.size
 
-def write_font(fnt, txt, w,h):
-	img = Image.new("RGBA",(w,h),(255,255,255))
-	draw = ImageDraw.Draw(img)
+
+def trim(im):
+	bg = Image.new(im.mode, im.size, im.getpixel((0,0)))
+	diff = ImageChops.difference(im, bg)
+	diff = ImageChops.add(diff, diff, 2.0, -100)
+	bbox = diff.getbbox()
+	if bbox:
+		return im.crop(bbox)
+
+def write_font(fnt, txt, w,h, target_size):
+	temp_img = Image.new("RGBA", (1000,1000),(255,255,255))
+	draw = ImageDraw.Draw(temp_img)
 	text_x, text_y = fnt.getsize(txt)
+	x = (1000 - text_x)/2
+	y = (1000 - text_y)/2
+	draw.text((x,y),txt,(0,0,0),font=fnt)
+	trimmed_font_image = trim(temp_img)	
+	trimmed_font_image.thumbnail(target_size)	
+	trimmed_size = trimmed_font_image.size
+	text_x = trimmed_size[0]
+	text_y = trimmed_size[1]
+
+	img = Image.new("RGBA",(w,h),(255,255,255))
+
 	x = (w - text_x)/2
 	y = (h - text_y)/2
-	draw.text((x,y),txt,(0,0,0),font=fnt)
+
+	
+	img.paste(trimmed_font_image, (x,y))
 	return img
 
 
@@ -89,59 +121,11 @@ def process_words_file(file_path = 'words.txt', form_path = 'forms.txt'):
 
 	return images, max_w, max_h, word_dict
 
-def write_all_fonts(word_dict, x_offset, y_offset, size=150, write_path = 'typed_words/', font_path = '/home/johnzz/dan/zi2zi/TALKTOTH.TTF'):
+def write_example_images(images, word_dict, max_width, max_height, size=100, write_path = 'typed_words/', font_path = '/home/johnzz/dan/zi2zi/HomemadeApple.ttf'):
 	fnt = ImageFont.truetype(font_path,size)
 	words_2_fontpath = {}
 	print 'finding correct width'
-
-	width = 0
-	max_idx = 0
-	for idx, word in enumerate(word_dict):
-		txt = word
-
-		text_x, text_y = fnt.getsize(txt)
-		if text_x > width and idx != 5333:
-			width = text_x
-			max_idx = idx
-			# width = width + 4
-			# height = 256
-			# img = Image.new("RGBA",(width,height),(255,255,255))
-			# draw = ImageDraw.Draw(img)
-			# text_x, text_y = fnt.getsize(txt)
-			# x = (width - text_x)/2
-			# y = (height - text_y)/2
-			# draw.text((x,y),txt,(0,0,0),font=fnt)
-			# img.save(write_path + str(idx) + '.png')
-
-
-	print str(max_idx) + ' is the widest image with a width of: ' + str(width+4)
-
-	print 'now creating font images'
-	width = width + 4
-	height = 256
-
-	for idx, word in enumerate(word_dict):
-		txt = word
-		text_x, text_y = fnt.getsize(txt)
-		#width = 10*256
-		img = Image.new("RGBA",(width,height),(255,255,255))
-		draw = ImageDraw.Draw(img)
-		text_x, text_y = fnt.getsize(txt)
-		x = (width - text_x)/2
-		y = (height - text_y)/2
-		draw.text((x,y),txt,(0,0,0),font=fnt)
-		img.save(write_path + str(idx) + '.png')
-		words_2_fontpath[word] = write_path + str(idx) + '.png'
-		if idx%500 == 0:
-			print 'processed ' + str(idx) + ' images'
-	return words_2_fontpath
-
-
-def write_example_images(images, word_dict, max_width, max_height, size=150, write_path = 'typed_words/', font_path = '/home/johnzz/dan/zi2zi/TALKTOTH.TTF'):
-	fnt = ImageFont.truetype(font_path,size)
-	words_2_fontpath = {}
-	print 'finding correct width'
-
+	author_dicts = defaultdict(lambda: defaultdict(int))
 	width = 0
 	max_idx = 0
 	for idx, word in enumerate(word_dict):
@@ -163,18 +147,28 @@ def write_example_images(images, word_dict, max_width, max_height, size=150, wri
 		width = max_w
 	if height < max_h:
 		height = max_h
-	width = 1024
-	height = 256
+	width = 256
+	height = 64
 	for idx, img_cont in enumerate(images):
 		txt = img_cont.word
 		h = img_cont.h
 		w = img_cont.w
 		label = img_cont.author
-		img = Image.open('words/' + img_cont.image_path)
-		example = Image.new("RGBA", (width * 2, height), (255, 255, 255))
-		example.paste(write_font(fnt, txt, width, height), (width,0))
-		example.paste(embed_image(img, width, height), (0, 0))
-		make_image(example, join(write_path,label, label + '_' + txt + str(idx) + '.jpg'))
+		if len(txt) < 10 and author_dicts[label][txt] == 0:
+			author_dicts[label][txt] += 1
+			img = Image.open('words/' + img_cont.image_path)
+			example = Image.new("RGBA", (width * 2, height), (255, 255, 255))
+			
+
+			
+			try:
+				embedded_img, embedded_size = embed_image(img, width, height)
+				example.paste(embedded_img, (0, 0))
+				example.paste(write_font(fnt, txt, width, height, embedded_size), (width,0))	
+				make_image(example, join(write_path,label, label + '_' + txt + '_' + str(idx) + '.jpg'))
+			except:
+				print img_cont.image_path
+				pass
 		if idx%500 == 0:
 			print 'processed ' + str(idx) + ' images'
 
