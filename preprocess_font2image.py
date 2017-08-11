@@ -158,13 +158,14 @@ def write_example_images(images, word_dict, max_width, max_height, size=100, wri
 			author_dicts[label][txt] += 1
 			img = Image.open('words/' + img_cont.image_path)
 			example = Image.new("RGBA", (width * 2, height), (255, 255, 255))
-			
-
-			
 			try:
 				embedded_img, embedded_size = embed_image(img, width, height)
 				example.paste(embedded_img, (0, 0))
 				example.paste(write_font(fnt, txt, width, height, embedded_size), (width,0))	
+				grey = example.convert('L')
+				bw = grey.point(lambda x: 0 if x < 175 else 255, '1')
+				example = Image.new("RGBA", (width * 2, height), (255, 255, 255))
+				example.paste(bw, (0,0))
 				make_image(example, join(write_path,label, label + '_' + txt + '_' + str(idx) + '.jpg'))
 			except:
 				print img_cont.image_path
@@ -174,7 +175,7 @@ def write_example_images(images, word_dict, max_width, max_height, size=100, wri
 
 
 parser = argparse.ArgumentParser(description='Processes images, converts font to images')
-parser.add_argument('--src_font', dest='src_font', default = '/Users/main/generators/cangan/TALKTOTH.TTF', help='path of the source font')
+parser.add_argument('--src_font', dest='src_font', default = '/Users/main/generators/cangan/Mistral.ttf', help='path of the source font')
 parser.add_argument('--char_size', dest='char_size', type=int, default=150, help='character size')
 parser.add_argument('--canvas_size', dest='canvas_size', type=int, default=256, help='canvas size')
 parser.add_argument('--sample_dir', dest='sample_dir',default='typed_words/', help='directory to save examples')
