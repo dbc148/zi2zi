@@ -12,7 +12,7 @@ from .ops import conv2d, deconv2d, lrelu, fc, batch_norm, init_embedding, condit
 from .dataset import TrainDataProvider, InjectDataProvider, NeverEndingLoopingProvider
 from .utils import scale_back, merge, save_concat_images
 from math import ceil
-from spatial_transformer import transformer
+from model.spatial_transformer import transformer
 import pdb
 
 # Auxiliary wrapper classes
@@ -32,9 +32,9 @@ class STNet(object):
         self.experiment_id = experiment_id
         self.batch_size = batch_size
         self.input_width = input_width
-	    self.input_height = input_height
+	self.input_height = input_height
         self.output_width = output_width
-	    self.output_height = output_height
+	self.output_height = output_height
         self.generator_dim = generator_dim
         self.discriminator_dim = discriminator_dim
         self.L1_penalty = L1_penalty
@@ -64,7 +64,7 @@ class STNet(object):
                 os.makedirs(self.sample_dir)
                 print("create sample directory")
 
-    def encoder(self, images, is_training, reuse=False):
+    def first_encoder(self, images, is_training, reuse=False):
         with tf.variable_scope("generator"):
             if reuse:
                 tf.get_variable_scope().reuse_variables()
@@ -77,7 +77,7 @@ class STNet(object):
                 enc = batch_norm(conv, is_training, scope="g_e%d_bn" % layer)
                 encode_layers["e%d" % layer] = enc
                 return enc
-
+	    
             e1 = conv2d(images, self.generator_dim, scope="g_e1_conv") #128
             encode_layers["e1"] = e1
             e2 = encode_layer(e1, self.generator_dim * 2, 2) #64
@@ -88,58 +88,42 @@ class STNet(object):
             #e7 = encode_layer(e6, self.generator_dim * 8, 7)
             #e8 = encode_layer(e7, self.generator_dim * 8, 8)
 
-            return e8, encode_layers
+            return e4, encode_layers
 
-    def decoder(self, encoded, encoding_layers, ids, inst_norm, is_training, reuse=False):
-        with tf.variable_scope("generator"):
+    def first_decoder(self, encoded, encoding_layers, ids, inst_norm, is_training, reuse=False):
+        with tf.variable_scope("generator1"):
             if reuse:
                 tf.get_variable_scope().reuse_variables()
-	    
-	    s = self.output_width
-            s2, s4, s8, s16, s32, s64, s128, s256, s512 = int(s / 2), int(s / 4), int(s / 8), int(s / 16), int(s / 32), int(
-                s / 64), int(s / 128), int(s/256), int(s/512)
+        
+            s = self.output_width
+            s2, s4, s8, s16, s32, s64, s128, s256, s512 = int(s / 2), int(s / 4), int(s / 8), int(s / 16), int(s / 32), int(s / 64), int(s / 128), int(s/256), int(s/512)
             sh = self.output_height
-            sh2, sh4, sh8, sh16, sh32, sh64, sh128, sh256, sh512 = int(sh / 2), int(sh / 4), int(sh / 8), int(sh / 16), int(sh / 32), int(
-                sh / 64), 1, int(sh/256), 1
-
+            sh2, sh4, sh8, sh16, sh32, sh64, sh128, sh256, sh512 = int(sh / 2), int(sh / 4), int(sh / 8), int(sh / 16), int(sh / 32), int(sh / 64), 1, int(sh/256), 1
             def decode_layer(x, output_height, output_width, output_filters, layer, enc_layer, dropout=False, do_concat=True):
                 dec = deconv2d(tf.nn.relu(x), [self.batch_size, output_height,
                                                output_width, output_filters], scope="g_d%d_deconv" % layer)
-            	#pdb.set_trace()
-		if layer != 8:
+
+            	if layer != 4:
                     # IMPORTANT: normalization for last layer
                     # Very important, otherwise GAN is unstable
                     # Trying conditional instance normalization to
                     # overcome the fact that batch normalization offers
                     # different train/test statistics
-                    if inst_norm:
-                        dec = conditional_instance_norm(dec, ids, self.embedding_num, scope="g_d%d_inst_norm" % layer)
+            	    if inst_norm:
+                	dec = conditional_instance_norm(dec, ids, self.embedding_num, scope="g_d%d_inst_norm" % layer)
                     else:
                         dec = batch_norm(dec, is_training, scope="g_d%d_bn" % layer)
-                if dropout:
+            	if dropout:
                     dec = tf.nn.dropout(dec, 0.5)
-                if do_concat:
-                    dec = tf.concat([dec, enc_layer], 3)
-                return dec
+            	if do_concat:
+            	    dec = tf.concat([dec, enc_layer], 3)
+            	return dec
 
-            d1 = decode_layer(encoded, sh128, s128, self.generator_dim * 8, layer=1, enc_layer=encoding_layers["e7"],
-                              dropout=True)
-            d2 = decode_layer(d1, sh64, s64, self.generator_dim * 8, layer=2, enc_layer=encoding_layers["e6"], dropout=True)	    
-            d3 = decode_layer(d2, sh32, s32, self.generator_dim * 8, layer=3, enc_layer=encoding_layers["e5"], dropout=True)
-            d4 = decode_layer(d3, sh16, s16, self.generator_dim * 8, layer=4, enc_layer=encoding_layers["e4"], dropout=True)
-            d5 = decode_layer(d4, sh8, s8, self.generator_dim * 4, layer=5, enc_layer=encoding_layers["e3"], dropout=True)
-            d6 = decode_layer(d5, sh4, s4, self.generator_dim * 2, layer=6, enc_layer=encoding_layers["e2"])
-            d7 = decode_layer(d6, sh2, s2, self.generator_dim , layer=7, enc_layer=encoding_layers["e1"])
-            d8 = decode_layer(d7, sh, s, self.output_filters, layer=8, enc_layer=None, do_concat=False)
-            #d2 = decode_layer(d1, sh64, s64, self.generator_dim * 8, layer=2, enc_layer=encoding_layers["e6"], dropout=True)
-            #d3 = decode_layer(d2, sh32, s32, self.generator_dim * 8, layer=3, enc_layer=encoding_layers["e5"], dropout=True)
-            #d4 = decode_layer(d3, sh16, s16, self.generator_dim * 8, layer=4, enc_layer=encoding_layers["e4"])
-            #d5 = decode_layer(d4, sh8, s8, self.generator_dim * 4, layer=5, enc_layer=encoding_layers["e3"])
-            #d6 = decode_layer(d5, sh4, s4, self.generator_dim * 2, layer=6, enc_layer=encoding_layers["e2"])
-            #d7 = decode_layer(d6, sh2, s2, self.generator_dim, layer=7, enc_layer=encoding_layers["e1"])
-            #d8 = decode_layer(d7, sh, s, self.output_filters, layer=8, enc_layer=None, do_concat=False)
-	   
-            output = tf.nn.tanh(d8)  # scale to (-1, 1)
+            d1 = decode_layer(encoded, sh8, s8, self.generator_dim * 4, layer=1, enc_layer=encoding_layers["e3"], dropout=True) #32
+            d2 = decode_layer(d1, sh4, s4, self.generator_dim * 2, layer=2, enc_layer=encoding_layers["e2"], dropout=True) #64   
+            d3 = decode_layer(d2, sh2, s2, self.generator_dim, layer=3, enc_layer=encoding_layers["e1"], dropout=True) #128
+            d4 = decode_layer(d3, sh, s, self.output_filters, layer=4, enc_layer=None, do_concat=False) #256
+            output = tf.nn.tanh(d4)  # scale to (-1, 1)
             return output
 
     def second_encoder(self, images, is_training, reuse=False):
@@ -156,23 +140,23 @@ class STNet(object):
                 encode_layers["e%d" % layer] = enc
                 return enc
 
-            e1 = conv2d(images, self.generator_dim, scope="g_e1_conv")
+            e1 = conv2d(images, self.generator_dim, scope="g_e1_conv") #128
             encode_layers["e1"] = e1
-            e2 = encode_layer(e1, self.generator_dim * 2, 2)
-            e3 = encode_layer(e2, self.generator_dim * 4, 3)
-            e4 = encode_layer(e3, self.generator_dim * 8, 4)
-            e5 = encode_layer(e4, self.generator_dim * 8, 5)
-            e6 = encode_layer(e5, self.generator_dim * 8, 6)
+            e2 = encode_layer(e1, self.generator_dim * 2, 2) #64
+            e3 = encode_layer(e2, self.generator_dim * 4, 3) #32
+            e4 = encode_layer(e3, self.generator_dim * 8, 4) #16
+            e5 = encode_layer(e4, self.generator_dim * 8, 5) #8
+            #e6 = encode_layer(e5, self.generator_dim * 8, 6)
             #e7 = encode_layer(e6, self.generator_dim * 8, 7)
             #e8 = encode_layer(e7, self.generator_dim * 8, 8)
-            return e6, encode_layers
+            return e5, encode_layers
 
-    def first_decoder(self, encoded, encoding_layers, ids, inst_norm, is_training, reuse=False):
-        with tf.variable_scope("generator1"):
+    def second_decoder(self, encoded, encoding_layers, ids, inst_norm, is_training, reuse=False):
+        with tf.variable_scope("generator"):
             if reuse:
                 tf.get_variable_scope().reuse_variables()
-        
-        s = self.output_width
+	    
+	    s = self.output_width
             s2, s4, s8, s16, s32, s64, s128, s256, s512 = int(s / 2), int(s / 4), int(s / 8), int(s / 16), int(s / 32), int(
                 s / 64), int(s / 128), int(s/256), int(s/512)
             sh = self.output_height
@@ -182,8 +166,8 @@ class STNet(object):
             def decode_layer(x, output_height, output_width, output_filters, layer, enc_layer, dropout=False, do_concat=True):
                 dec = deconv2d(tf.nn.relu(x), [self.batch_size, output_height,
                                                output_width, output_filters], scope="g_d%d_deconv" % layer)
-                #pdb.set_trace()
-        if layer != 8:
+
+		if layer != 8:
                     # IMPORTANT: normalization for last layer
                     # Very important, otherwise GAN is unstable
                     # Trying conditional instance normalization to
@@ -199,12 +183,12 @@ class STNet(object):
                     dec = tf.concat([dec, enc_layer], 3)
                 return dec
 
-            d1 = decode_layer(encoded, sh32, s32, self.generator_dim * 8, layer=1, enc_layer=encoding_layers["e7"],
-                              dropout=True) #32
-            d2 = decode_layer(d1, sh16, s16, self.generator_dim * 8, layer=2, enc_layer=encoding_layers["e6"], dropout=True) #64        
-            d3 = decode_layer(d2, sh8, s8, self.generator_dim * 8, layer=3, enc_layer=encoding_layers["e5"], dropout=True) #128
-            d4 = decode_layer(d3, sh4, s4, self.generator_dim * 8, layer=4, enc_layer=encoding_layers["e4"], dropout=True) #256
-            #d5 = decode_layer(d4, sh8, s8, self.generator_dim * 4, layer=5, enc_layer=encoding_layers["e3"], dropout=True)
+            d1 = decode_layer(encoded, sh16, s16, self.generator_dim * 8, layer=1, enc_layer=encoding_layers["e4"],
+                              dropout=True) #16
+            d2 = decode_layer(d1, sh8, s8, self.generator_dim * 4, layer=2, enc_layer=encoding_layers["e3"], dropout=True)	    
+            d3 = decode_layer(d2, sh4, s4, self.generator_dim * 2, layer=3, enc_layer=encoding_layers["e2"], dropout=True)
+            d4 = decode_layer(d3, sh2, s2, self.generator_dim, layer=4, enc_layer=encoding_layers["e1"], dropout=True)
+            d5 = decode_layer(d4, sh, s, self.output_filters, layer=5, enc_layer=None, do_concat=False)
             #d6 = decode_layer(d5, sh4, s4, self.generator_dim * 2, layer=6, enc_layer=encoding_layers["e2"])
             #d7 = decode_layer(d6, sh2, s2, self.generator_dim , layer=7, enc_layer=encoding_layers["e1"])
             #d8 = decode_layer(d7, sh, s, self.output_filters, layer=8, enc_layer=None, do_concat=False)
@@ -215,35 +199,48 @@ class STNet(object):
             #d6 = decode_layer(d5, sh4, s4, self.generator_dim * 2, layer=6, enc_layer=encoding_layers["e2"])
             #d7 = decode_layer(d6, sh2, s2, self.generator_dim, layer=7, enc_layer=encoding_layers["e1"])
             #d8 = decode_layer(d7, sh, s, self.output_filters, layer=8, enc_layer=None, do_concat=False)
-       
-            output = tf.nn.tanh(d8)  # scale to (-1, 1)
+	   
+            output = tf.nn.tanh(d5)  # scale to (-1, 1)
             return output
 
 
-    def generator(self, images, embeddings, embedding_ids, inst_norm, is_training, use_transformer=True, reuse=False):
-        i8, ienc_layers = self.inter_encoder(inter_images, is_training=is_training, reuse=reuse)
+
+    def generator(self, images, first_embeddings, second_embeddings, embedding_ids, inst_norm, is_training, use_transformer=True, reuse=False):
+        i8, ienc_layers = self.first_encoder(images, is_training=is_training, reuse=reuse)
+	i8_shape = i8.shape
         if use_transformer:
-            identity = np.array([[1., 0., 0.],
+            
+	    identity = np.array([[1., 0., 0.],
                                 [0., 1., 0.]]) 
-            identity = identity.flatten()
-            theta = tf.Variable(initial_value=identity)
-            i8 = transformer(i8, theta, i8.shape)
-        local_embeddings = tf.nn.embedding_lookup(embeddings, ids=embedding_ids)
-        local_embeddings = tf.reshape(local_embeddings, [self.batch_size, 1, 1, self.embedding_dim])
+            identity = identity.astype('float32').flatten()
+	    #build the forward layer
+	    total_elements = np.prod([int(x) for x in i8_shape[1:]])
+	    W_fc1 = tf.Variable(tf.zeros([total_elements,6]), name='W_fc1')
+	    b_fc1 = tf.Variable(initial_value=identity, name='b_fc1') 
+	    h_fc1 = tf.matmul(tf.zeros([self.batch_size, total_elements]), W_fc1) + b_fc1
+            i8 = transformer(i8, h_fc1, i8_shape[1:3])
+        local_embeddings = tf.nn.embedding_lookup(first_embeddings, ids=embedding_ids)
+        local_embeddings = tf.reshape(local_embeddings, [self.batch_size, int(i8_shape[1]), int(i8_shape[2]), self.embedding_dim])
+
         embedded = tf.concat([i8, local_embeddings], 3)
-        inter_output = self.inter_decoder(embedded, enc_layers, embedding_ids, inst_norm, is_training=is_training, reuse=reuse)
-
-        e8, enc_layers = self.encode_inter(inter_output, is_training=is_training, reuse=reuse)
+        inter_output = self.first_decoder(embedded, ienc_layers, embedding_ids, inst_norm, is_training=is_training, reuse=reuse)
+        e8, enc_layers = self.second_encoder(inter_output, is_training=is_training, reuse=reuse)
+	e8_shape = e8.shape
         if use_transformer:
-            identity = np.array([[1., 0., 0.],
+	    identity = np.array([[1., 0., 0.],
                                 [0., 1., 0.]]) 
-            identity = identity.flatten()
-            theta = tf.Variable(initial_value=identity)
-            e8 = transformer(e8, theta, e8.shape)
-
+            identity = identity.astype('float32').flatten()
+	    #build the forward layer
+	    total_elements = np.prod([int(x) for x in i8_shape[1:]])
+	    W_fc1 = tf.Variable(tf.zeros([total_elements,6]), name='W_fc1_1')
+	    b_fc1 = tf.Variable(initial_value=identity, name='b_fc1_1') 
+	    h_fc1 = tf.matmul(tf.zeros([self.batch_size, total_elements]), W_fc1) + b_fc1
+            e8 = transformer(e8, h_fc1, e8_shape[1:3])
+	local_embeddings = tf.nn.embedding_lookup(second_embeddings, ids=embedding_ids)
+        local_embeddings = tf.reshape(local_embeddings,  [self.batch_size, int(e8_shape[1]), int(e8_shape[2]), self.embedding_dim])
         embedded = tf.concat([e8, local_embeddings], 3)
-        output = self.decoder(embedded, enc_layers, embedding_ids, inst_norm, is_training=is_training, reuse=reuse)
-        return output, e8, inter_output, ie8
+        output = self.second_decoder(embedded, enc_layers, embedding_ids, inst_norm, is_training=is_training, reuse=reuse)
+        return output, e8, inter_output, i8
 
 
     def discriminator(self, image, is_training, reuse=False):
@@ -280,8 +277,9 @@ class STNet(object):
         # source images
         real_A = real_data[:, :, :, self.input_filters:self.input_filters + self.output_filters]
 
-        embedding = init_embedding(self.embedding_num, self.embedding_dim)
-        fake_B, encoded_real_A = self.generator(real_A, embedding, embedding_ids, is_training=is_training,
+        embedding = init_embedding(self.embedding_num, self.embedding_dim, x=4, y=16)
+	second_embedding = init_embedding(self.embedding_num, self.embedding_dim, x=2, y=8,scope='embedding2')
+        fake_B, encoded_real_A, fake_inter_B, encoded_inter_real_A = self.generator(real_A, embedding, second_embedding, embedding_ids, is_training=is_training,
                                                 inst_norm=inst_norm)
         real_AB = tf.concat([real_A, real_B], 3)
         fake_AB = tf.concat([real_A, fake_B], 3)
@@ -294,8 +292,8 @@ class STNet(object):
         # encoding constant loss
         # this loss assume that generated imaged and real image
         # should reside in the same space and close to each other
-        encoded_fake_B = self.encoder(fake_B, is_training, reuse=True)[0]
-        const_loss = (tf.reduce_mean(tf.square(encoded_real_A - encoded_fake_B))) * self.Lconst_penalty
+        encoded_fake_B = self.first_encoder(fake_B, is_training, reuse=True)[0]
+        const_loss = (tf.reduce_mean(tf.square(encoded_inter_real_A - encoded_fake_B))) * self.Lconst_penalty
 
         # category loss
         true_labels = tf.reshape(tf.one_hot(indices=embedding_ids, depth=self.embedding_num),
@@ -331,7 +329,7 @@ class STNet(object):
             # it is useful when discriminator get saturated and d_loss drops to near zero
             # those data could be used as additional source of losses to break the saturation
             no_target_A = no_target_data[:, :, :, self.input_filters:self.input_filters + self.output_filters]
-            no_target_B, encoded_no_target_A = self.generator(no_target_A, embedding, no_target_ids,
+            no_target_B, encoded_no_target_A = self.generator(no_target_A, embedding, second_embedding, no_target_ids,
                                                               is_training=is_training,
                                                               inst_norm=inst_norm, reuse=True)
             no_target_labels = tf.reshape(tf.one_hot(indices=no_target_ids, depth=self.embedding_num),
@@ -340,7 +338,7 @@ class STNet(object):
             no_target_D, no_target_D_logits, no_target_category_logits = self.discriminator(no_target_AB,
                                                                                             is_training=is_training,
                                                                                             reuse=True)
-            encoded_no_target_B = self.encoder(no_target_B, is_training, reuse=True)[0]
+            encoded_no_target_B = self.first_encoder(no_target_B, is_training, reuse=True)[0]
             no_target_const_loss = tf.reduce_mean(
                 tf.square(encoded_no_target_A - encoded_no_target_B)) * self.Lconst_penalty
             no_target_category_loss = tf.reduce_mean(

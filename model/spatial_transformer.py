@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 import tensorflow as tf
-
+import pdb
 
 def transformer(U, theta, out_size, name='SpatialTransformer', **kwargs):
     """Spatial Transformer Layer
@@ -142,10 +142,12 @@ def transformer(U, theta, out_size, name='SpatialTransformer', **kwargs):
 
     def _transform(theta, input_dim, out_size):
         with tf.variable_scope('_transform'):
-            num_batch = tf.shape(input_dim)[0]
-            height = tf.shape(input_dim)[1]
+            #num_batch = tf.shape(input_dim)[0]
+            num_batch = input_dim.shape[0]
+	    height = tf.shape(input_dim)[1]
             width = tf.shape(input_dim)[2]
-            num_channels = tf.shape(input_dim)[3]
+            #num_channels = tf.shape(input_dim)[3]
+	    num_channels = input_dim.shape[3]
             theta = tf.reshape(theta, (-1, 2, 3))
             theta = tf.cast(theta, 'float32')
 

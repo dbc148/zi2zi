@@ -7,6 +7,7 @@ from PIL import Image, ImageChops
 from PIL import ImageDraw
 from PIL import ImageFont
 import pdb
+import string 
 import numpy as np
 import time
 
@@ -154,7 +155,7 @@ def write_example_images(images, word_dict, max_width, max_height, size=100, wri
 		h = img_cont.h
 		w = img_cont.w
 		label = img_cont.author
-		if len(txt) < 10 and author_dicts[label][txt] == 0:
+		if len(txt) < 10 and author_dicts[label][txt] == 0 and any > 0:
 			author_dicts[label][txt] += 1
 			img = Image.open('words/' + img_cont.image_path)
 			example = Image.new("RGBA", (width * 2, height), (255, 255, 255))

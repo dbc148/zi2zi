@@ -52,9 +52,9 @@ def fc(x, output_size, stddev=0.02, scope="fc"):
         return tf.matmul(x, W) + b
 
 
-def init_embedding(size, dimension, stddev=0.01, scope="embedding"):
+def init_embedding(size, dimension, stddev=0.01, x=1, y=1,scope="embedding"):
     with tf.variable_scope(scope):
-        return tf.get_variable("E", [size, 1, 1, dimension], tf.float32,
+        return tf.get_variable("E", [size, x, y, dimension], tf.float32,
                                tf.random_normal_initializer(stddev=stddev))
 
 

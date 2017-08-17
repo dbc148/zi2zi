@@ -54,7 +54,7 @@ def main(_):
     with tf.Session(config=config) as sess:
 	#sess = tf_debug.LocalCLIDebugWrapperSession(sess)
         
-        if use_stack:
+        if args.use_stack:
             model = STNet(args.experiment_dir, batch_size=args.batch_size, experiment_id=args.experiment_id,
                      input_width=args.image_width, input_height=args.image_height, output_width=args.image_width, output_height=args.image_height, embedding_num=args.embedding_num,
                      embedding_dim=args.embedding_dim, L1_penalty=args.L1_penalty, Lconst_penalty=args.Lconst_penalty,
